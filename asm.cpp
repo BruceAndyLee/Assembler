@@ -11,7 +11,6 @@
 ASSEMBLER BY ARBUCE LEE V.1 YYY 1897
 */
 
-
 enum ARGS_TYPES
 {
 	TYPE_RGSR,
@@ -76,7 +75,7 @@ size_t getflen(FILE* f)
 {
 	if (!f)
 	{
-		printf("flen: error: invalid descriptor pointer\n");
+		printf("getflen: error: invalid descriptor pointer\n");
 		return 1;
 	}
 	long cur = ftell(f);
@@ -239,20 +238,42 @@ Asm::~Asm()
 size_t Asm::get_label_pc(const char* name)
 {
 	size_t i = 0;
-	for (i = 0; strcmp(labels_[i].name, name); i++);
-	return labels_[i].pc;
+	int found = 0;
+	for (i = 0; labels_[i].name; i++)
+		 if (!strcmp(labels_[i].name, name))
+		 {
+			 found = 1;
+			 break;
+		 }
+	return found?labels_[i].pc:-1;
 }
 
 int Asm::find_labels()
 {
-	for (size_t i = 0; asm_code_[i]; i++)
-		if (strchr(asm_code_[i], ':'))
+	int main_flg = 0;
+	size_t line_ctr = 0;
+	size_t lbl_ctr	= 0;
+	while (asm_code_[line_ctr])
+	{
+		if (strchr(asm_code_[line_ctr], ':'))
 		{
-			sscanf(asm_code_[i], " %[A-Za-z]:", labels_[i].name); //variable i can be interpreted as the cmd number that label points at
-			sprintf(asm_code_[i], "\n");//process_code thus will know that cur str is invalid to parse a cmd from
-			printf("asm: find_labels(): got label '%s': [%lu]\n", labels_[i].name, i);
-			labels_[i].pc = i;
+			sscanf(asm_code_[line_ctr], " %[A-Za-z]:", labels_[lbl_ctr].name);	//variable i can be interpreted as the cmd number that label points at
+			sprintf(asm_code_[line_ctr], "\n");									//process_code thus will know that cur str is invalid to parse a cmd from
+			printf("asm: find_labels(): got label '%s': [%lu]\n", labels_[lbl_ctr].name, lbl_ctr);
+			labels_[lbl_ctr].pc = lbl_ctr;
+			if (!strcmp(labels_[lbl_ctr].name, "main")) 
+				main_flg = 1;
+			line_ctr++;
+			continue;
 		}
+		line_ctr++;
+		lbl_ctr++;
+	}
+	if (!main_flg)
+	{
+		printf("Asm: error: 'main' func is missing\n");
+		exit(EXIT_FAILURE);
+	}
 	return 0;
 }
 
@@ -276,11 +297,11 @@ int Asm::check_cmd()
 {	
 #define _CPU_CMDS_
 
-#define CPU_CMD(funcName, argsNum, funcNum)		\
-    if(!strcmp(cur_str_[0], #funcName))			\
-	{											\
-		argsnum_ = argsNum;						\
-        return funcNum;							\
+#define CPU_CMD(funcName, unu1, argsNum, funcNum, unu2)	\
+    if(!strcmp(cur_str_[0], #funcName))					\
+	{													\
+		argsnum_ = argsNum;								\
+        return funcNum;									\
 	}
 #include "supercmd.txt"
 
@@ -332,7 +353,12 @@ int Asm::parse_arguments()
 			}
 		case TYPE_LABL:
 			arg1_  = (int) get_label_pc(cur_str_[1]);
-			type1_ = TYPE_ADDR;
+			if (arg1_ == -1)
+			{
+				printf("Asm: error: unknown label '%s' at line %lu\n", cur_str_[1], line_);
+				exit(EXIT_FAILURE);
+			}
+			type1_ = TYPE_CNST;
 			break;
 		default:
 			printf("unknown specifier '%c' for command %s at line %lu\n", cur_str_[1][0], cur_str_[0], line_ + 1);
@@ -388,18 +414,31 @@ int Asm::parse_arguments()
 
 void Asm::fprint_str()
 {
-	fprintf(bin_f_, "%d", cur_cmd_num_);
+	printf("cmd_numis_ %d\n", cur_cmd_num_);
+	for (int i = 31; i >= 0; i--)
+		printf("%d", ((cur_cmd_num_ >> i)&1)?1:0);
+	printf("\n");
+	fwrite(&cur_cmd_num_, sizeof(int), sizeof(char), bin_f_);
 	if (type1_ != -1)
-		fprintf(bin_f_, "%d%d", type1_, arg1_);
+	{
+		fwrite(&type1_, sizeof(int), sizeof(char), bin_f_);
+		fwrite(&arg1_,  sizeof(int), sizeof(char), bin_f_);
+	}
 	
 	if (type2_ != -1)
-		fprintf(bin_f_, "%d%d", type2_, arg2_);
+	{
+		fwrite(&type2_, sizeof(int), sizeof(char), bin_f_);
+		fwrite(&arg2_,  sizeof(int), sizeof(char), bin_f_);
+	}
 }
 
 int Asm::process_code()
 {
 	find_labels(); // receiving all label valuing numbers and deliting extra strings from asm code str
-	ip_ = 0;
+	int hlt_flag = 0;
+	printf("main: [%lu]\n", get_label_pc("main"));
+	int main_pc = get_label_pc("main");
+	fwrite(&main_pc, 1, sizeof(int), bin_f_);
 	while (asm_code_[line_])
 	{
 		printf("processing %lu line\n", line_);
@@ -428,6 +467,9 @@ int Asm::process_code()
 			printf("Asm: error: unknown command '%s' line %lu\n", cur_str_[0], line_ + 1);
 			exit(EXIT_FAILURE);
 		}
+
+		if ( !strcmp(cur_str_[0], "HLT") )
+			hlt_flag = 1;
 		
 		if (check_arguments())
 		{
@@ -453,6 +495,11 @@ int Asm::process_code()
 		free(cur_str_);
 		ip_++;
 		line_++;
+	}
+	if (!hlt_flag)
+	{
+		printf("Asm: error: terminator 'HLT' is missing\n");
+		exit(EXIT_FAILURE);
 	}
 	return 0;
 }
@@ -484,7 +531,20 @@ int main(int argc, char* argv[])
 
 	my_ass.process_code();
 	
+	int a = 1;
+
+	a = a << 8;
+
+	printf("a: %d\n", a);
+
+	/*for (int i = 0; i < 4; i++)
+	{
+		
+	}*/
+
+
 	fclose(fasm);
 	exit(EXIT_SUCCESS);
+
 }
 

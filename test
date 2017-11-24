@@ -1,0 +1,9 @@
+je:
+POP %1
+JMP halt
+main:
+PUSH 3.1415
+CMP 5, 4
+JE je
+halt:
+HLT
