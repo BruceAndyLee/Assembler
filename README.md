@@ -10,6 +10,8 @@ Stack:
 - add
 - mul
 - sub
+- in (??)
+- out (??)
 
 Function stack:
 - call
@@ -18,8 +20,6 @@ Function stack:
 Registers:
 - outr
 - inr
-- in
-- out
 
 Flow control:
 - HLT
